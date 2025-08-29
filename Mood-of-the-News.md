@@ -320,3 +320,196 @@ BQ_TABLE = os.environ.get("BQ_TABLE")
 
 NEWS_ENDPOINT = "https://newsapi.org/v2/top-headlines"
 DEFAULT_PARAMS = {
+
+
+Here’s the updated **Markdown doc** with clear, ready‑to‑run examples for every Makefile command so this doubles as both **reference** and **how‑to**.
+
+---
+
+# Terraform + Makefile Deployment Workflow
+
+## 📄 Makefile Overview
+
+The **Makefile** provides shorthand commands for packaging, deploying, and tearing down your GCP Cloud Function via Terraform — without memorizing long commands.
+
+---
+
+## 🔧 Variables
+
+```make
+PROJECT_ID ?= your-gcp-project-id
+REGION ?= us-central1
+NEWS_API_KEY ?= replace_me
+TF_DIR := terraform
+FN_DIR := function
+```
+
+- Override defaults inline when running commands:
+  ```bash
+  make tf-apply PROJECT_ID=my-gcp-id REGION=us-east1 NEWS_API_KEY=abc123
+  ```
+
+---
+
+## 🎯 Phony Targets
+```make
+.PHONY: zip tf-init tf-apply tf-destroy
+```
+- Declares commands as targets (not files).
+
+---
+
+## 📌 Targets with Examples
+
+### 1. **zip**
+```make
+zip:
+	@cd $(FN_DIR) && rm -f function.zip && zip -qr function.zip main.py requirements.txt
+```
+**What it does**: Creates a fresh `function.zip` from `main.py` and `requirements.txt` inside the `function/` directory.
+
+**Example Run**:
+```bash
+make zip
+```
+**Result**:  
+- Any old `function.zip` is removed.
+- New `function.zip` is created and ready for deployment.
+
+---
+
+### 2. **tf-init**
+```make
+tf-init:
+	cd $(TF_DIR) && terraform init
+```
+**What it does**: Prepares the Terraform working directory — downloads provider plugins, sets up the backend.
+
+**Example Run**:
+```bash
+make tf-init
+```
+**Result**:  
+- Terraform backend initialized (local or remote).
+- Ready for `plan`/`apply`.
+
+---
+
+### 3. **tf-apply**
+```make
+tf-apply: zip
+	cd $(TF_DIR) && terraform apply \
+	  -var="project_id=$(PROJECT_ID)" \
+	  -var="region=$(REGION)" \
+	  -var="news_api_key=$(NEWS_API_KEY)"
+```
+**What it does**:  
+- Runs `zip` first to package Cloud Function code.  
+- Applies Terraform configuration with your variables.
+
+**Example Run**:
+```bash
+make tf-apply PROJECT_ID=my-gcp-id REGION=us-central1 NEWS_API_KEY=abcd1234
+```
+**Result**:  
+- Cloud Function zipped and uploaded.
+- Terraform provisions/updates all resources (Function, Scheduler, BigQuery, etc.).
+
+---
+
+### 4. **tf-destroy**
+```make
+tf-destroy:
+	cd $(TF_DIR) && terraform destroy \
+	  -var="project_id=$(PROJECT_ID)" \
+	  -var="region=$(REGION)" \
+	  -var="news_api_key=$(NEWS_API_KEY)"
+```
+**What it does**:  
+- Destroys all infrastructure Terraform created for this project.
+
+**Example Run**:
+```bash
+make tf-destroy PROJECT_ID=my-gcp-id REGION=us-central1 NEWS_API_KEY=abcd1234
+```
+**Result**:  
+- Cloud Function, scheduler, datasets, and other linked resources are removed.
+
+---
+
+## 🛠 Terraform Execution Options
+
+### Local Execution (Development)
+1. Install Terraform:
+   ```bash
+   brew install terraform
+   ```
+2. Authenticate with GCP:
+   ```bash
+   gcloud auth application-default login
+   ```
+3. Deploy:
+   ```bash
+   make tf-apply PROJECT_ID=my-gcp-id REGION=us-east1 NEWS_API_KEY=abcd1234
+   ```
+
+---
+
+## 🚀 Local-to-Remote Terraform Workflow
+
+### Phase 1 — Local + Remote State
+```bash
+gsutil mb -p $PROJECT_ID -l $REGION gs://my-tf-state-bucket/
+```
+Backend config (`terraform/main.tf`):
+```hcl
+terraform {
+  backend "gcs" {
+    bucket = "my-tf-state-bucket"
+    prefix = "cloud-function"
+  }
+}
+```
+Initialize:
+```bash
+make tf-init
+```
+
+---
+
+### Phase 2 — Version Control
+- Store all infra code in Git.
+- `main` = production‑ready infra.
+
+---
+
+### Phase 3 — CI/CD Integration
+Pipeline steps:
+```bash
+terraform init
+terraform plan -out=tfplan
+terraform apply -auto-approve tfplan
+```
+
+---
+
+### Phase 4 — Gradual Cutover
+- Dev/test locally.
+- Merge to `main` to trigger CI/CD.
+
+---
+
+### Phase 5 — Fully Remote
+- All deploys run via pipeline.
+- Notifications for changes.
+
+---
+
+## 🌐 Workflow Diagram
+```
+Mac (local dev) ───► Remote GCS state ───► Git Push ───► CI/CD Runner ───► Terraform Apply ───► GCP Infra
+```
+
+---
+
+If you’d like, I can now **add a working GitHub Actions `.yml` pipeline** section here so this doc includes the exact automation script to run `make tf-apply` in CI without any guesswork. That would make it instantly production‑deployable from GitHub. Would you like me to append that?
