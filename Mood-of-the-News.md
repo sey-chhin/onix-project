@@ -513,3 +513,249 @@ Mac (local dev) ───► Remote GCS state ───► Git Push ───►
 ---
 
 If you’d like, I can now **add a working GitHub Actions `.yml` pipeline** section here so this doc includes the exact automation script to run `make tf-apply` in CI without any guesswork. That would make it instantly production‑deployable from GitHub. Would you like me to append that?
+
+Here’s your **updated Markdown doc**, now with a **ready‑to‑use GitHub Actions pipeline** section so you can deploy straight from GitHub without guesswork.
+
+---
+
+# Terraform + Makefile Deployment Workflow
+
+*(Sections above about Makefile, variables, targets, and workflow remain as we wrote them — now we’re appending the CI/CD automation setup.)*
+
+---
+
+## ⚙️ GitHub Actions CI/CD Pipeline for Terraform + GCP
+
+This pipeline will:
+- Run on pushes to `main` (you can change the branch)
+- Authenticate to GCP using a **Workload Identity Federation** or **Service Account key** stored in repo secrets
+- Run `make tf-apply` to deploy
+
+---
+
+### **1. Prerequisites**
+- **Terraform code** and **Makefile** committed to your repo.
+- **GCP Service Account** with required roles (for your Cloud Function, Scheduler, BigQuery, etc.).
+- Service account **JSON key** added to repo secrets as `GCP_SA_KEY` *(or set up Workload Identity Federation for keyless auth)*.
+
+**Minimum IAM Roles**:
+- `roles/owner` *(for testing)* or more granular:
+  - `roles/cloudfunctions.developer`
+  - `roles/iam.serviceAccountUser`
+  - `roles/scheduler.admin`
+  - `roles/bigquery.admin`
+  - `roles/storage.admin`
+
+---
+
+### **2. GitHub Actions Workflow File**
+Create this at:  
+`.github/workflows/deploy.yml`
+
+```yaml
+name: Deploy Terraform to GCP
+
+on:
+  push:
+    branches: [ "main" ]  # Trigger on pushes to main branch
+  workflow_dispatch:       # Allow manual trigger
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: us-central1
+      NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.8.4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up gcloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Verify gcloud auth
+      run: gcloud auth list
+
+    - name: Terraform Init
+      run: make tf-init
+
+    - name: Terraform Apply
+      run: make tf-apply PROJECT_ID=$PROJECT_ID REGION=$REGION NEWS_API_KEY=$NEWS_API_KEY
+```
+
+---
+
+### **3. Recommended Secrets**
+Add these in **GitHub → Repo Settings → Secrets and variables → Actions**:
+
+| Secret Name        | Example Value                | Purpose                           |
+|--------------------|------------------------------|-----------------------------------|
+| `GCP_PROJECT_ID`   | `my-gcp-project`             | GCP project to deploy to          |
+| `GCP_SA_KEY`       | JSON key from service account | Auth for Terraform + GCP CLI      |
+| `NEWS_API_KEY`     | `abcd1234`                   | API key for your Cloud Function   |
+
+---
+
+### **4. How it Works**
+1. Trigger: Push to `main` or run manually.
+2. GitHub runner checks out code, installs Terraform & `gcloud`.
+3. Authenticates to GCP with service account.
+4. Runs the same `make` targets you use locally — no script duplication.
+5. Infrastructure is applied exactly as in local runs.
+
+---
+
+✅ **Pro tip**: You can add a `terraform plan` step that runs on pull requests so you see what will change before merging — a great safety net for production.
+
+---
+
+Perfect — here’s the **extended documentation** with a **pull request “plan” preview workflow** so you get safe, automated Terraform change previews before merging, and full apply only when changes hit `main`.
+
+---
+
+# Terraform + Makefile Deployment Workflow
+
+*(Sections above for Makefile, commands, and CI/CD remain as already documented — this adds the PR plan pipeline to the **CI/CD** section.)*
+
+---
+
+## 🛡️ GitHub Actions — Pull Request Plan + Main Branch Apply
+
+This setup creates **two workflows**:
+1. **Plan on Pull Requests** — shows infra changes without applying.
+2. **Apply on Merge to Main** — deploys only when PR is merged.
+
+---
+
+### **1. Pull Request Plan Workflow**
+
+File: `.github/workflows/tf-plan.yml`
+```yaml
+name: Terraform Plan (PR Preview)
+
+on:
+  pull_request:
+    branches: [ "main" ]  # Runs when PR targets main
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: us-central1
+      NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.8.4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up gcloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Terraform Init
+      run: make tf-init
+
+    - name: Terraform Plan
+      run: |
+        cd terraform
+        terraform plan \
+          -var="project_id=$PROJECT_ID" \
+          -var="region=$REGION" \
+          -var="news_api_key=$NEWS_API_KEY"
+```
+**Result**:
+- On any PR to `main`, GitHub will post the Terraform plan as a comment in the PR (if configured via Terraform GitHub Actions log output).
+- No infra changes are applied — it’s read‑only for safety.
+
+---
+
+### **2. Main Branch Apply Workflow**
+
+File: `.github/workflows/tf-apply.yml`  
+*(This is the one we wrote earlier — unchanged except for clarity in naming.)*
+```yaml
+name: Terraform Apply (Main Branch)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: us-central1
+      NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.8.4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up gcloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Terraform Init
+      run: make tf-init
+
+    - name: Terraform Apply
+      run: make tf-apply PROJECT_ID=$PROJECT_ID REGION=$REGION NEWS_API_KEY=$NEWS_API_KEY
+```
+
+---
+
+### **3. Secret Requirements**
+
+| Secret Name        | Description                                         |
+|--------------------|-----------------------------------------------------|
+| `GCP_PROJECT_ID`   | Target GCP project ID                               |
+| `GCP_SA_KEY`       | Service account JSON key (stringified)              |
+| `NEWS_API_KEY`     | API key for the Cloud Function                      |
+
+---
+
+### 📊 **Recommended Flow**
+1. Devs create a branch → push code → open PR to `main`.
+2. **`tf-plan.yml`** runs — team reviews changes.
+3. Merge PR → **`tf-apply.yml`** runs → deploys infra.
+
+---
+
+If you like, I can **enhance this further by adding PR comments that embed the Terraform plan output directly into the GitHub pull request conversation** so reviewers don’t even need to open logs. That’s a small tweak to the `tf-plan.yml` job. I can wire that in next so the doc covers *the full review experience*. Would you like me to add that?
+
